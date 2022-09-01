@@ -79,12 +79,7 @@ def check_os():
     # check operating system or adjust output color formatting
     :return: operating_system
     """
-    # set default operating system to windows
-    operating_system = "windows"
-
-    if os.name == "posix":
-        operating_system = "posix"
-    return operating_system
+    return "posix" if os.name == "posix" else "windows"
 
 
 #
@@ -118,7 +113,10 @@ def signal_handler(*_):
     """
     If user pressed Ctrl+C close all connections and exit
     """
-    logging.warning(Bcolors.RED + ' !!!  You pressed Ctrl+C. Exiting script.' + Bcolors.ENDC)
+    logging.warning(
+        f'{Bcolors.RED} !!!  You pressed Ctrl+C. Exiting script.{Bcolors.ENDC}'
+    )
+
     finaloutput()
     sys.exit(130)
 
@@ -139,7 +137,11 @@ def web_call(location):
 
 def random_string(length):
     return ''.join(
-        random.choice(string.ascii_lowercase + string.ascii_uppercase + string.digits) for x in range(length))
+        random.choice(
+            string.ascii_lowercase + string.ascii_uppercase + string.digits
+        )
+        for _ in range(length)
+    )
 
 
 def finaloutput():
@@ -149,13 +151,12 @@ def finaloutput():
         print(f'Searching for sites with username ({args.username}) > Found {len(username_results)} results:\n')
         for result in username_results:
             print(result)
+    elif len(overall_results) > 0:
+        print('The following previously "valid" sites had errors:')
+        for site_with_error, results in sorted(overall_results.items()):
+            print(Bcolors.YELLOW + f'     {site_with_error} --> {results}' + Bcolors.ENDC)
     else:
-        if len(overall_results) > 0:
-            print('The following previously "valid" sites had errors:')
-            for site_with_error, results in sorted(overall_results.items()):
-                print(Bcolors.YELLOW + '     %s --> %s' % (site_with_error, results) + Bcolors.ENDC)
-        else:
-            print(':) No problems with the JSON file were found.')
+        print(':) No problems with the JSON file were found.')
 
 
 # Suppress HTTPS warnings
@@ -169,11 +170,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 signal.signal(signal.SIGINT, signal_handler)
 
 # Read in the JSON file
-if (args.inputfile):
-    inputfile = args.inputfile
-else:
-    inputfile = 'web_accounts_list.json'
-
+inputfile = args.inputfile or 'web_accounts_list.json'
 with open(inputfile, 'r', errors='ignore') as data_file:
     data = json.load(data_file)
 
@@ -184,8 +181,7 @@ if args.site:
     if len(data['sites']) == 0:
         logging.error(' -  Sorry, the requested site or sites were not found in the list')
         sys.exit(1)
-    sites_not_found = len(args.site) - len(data['sites'])
-    if sites_not_found:
+    if sites_not_found := len(args.site) - len(data['sites']):
         logging.warning(' -  WARNING: %d requested sites were not found in the list' % sites_not_found)
     logging.info(' -  Checking %d sites' % len(data['sites']))
 elif args.category:
@@ -197,7 +193,7 @@ elif args.category:
         sys.exit(1)
     logging.info(' -  Checking %d sites' % len(data['sites']))
 else:
-    logging.info(' -  %s sites found in file.' % len(data['sites']))
+    logging.info(f" -  {len(data['sites'])} sites found in file.")
 
 def check_site(site, username=None):
     # Examine the current validity of the entry
@@ -223,78 +219,106 @@ def check_site(site, username=None):
     if isinstance(r, str):
         # We got an error on the web call
         return logging.error(Bcolors.RED + r + Bcolors.ENDC)
-    else:
         # Check debug mode and print error to console
-        if args.debug:
-            logging.debug("- HTTP status: %s" % r.status_code)
-            logging.debug("- HTTP response: %s" % r.content)
+    if args.debug:
+        logging.debug(f"- HTTP status: {r.status_code}")
+        logging.debug(f"- HTTP response: {r.content}")
 
-        # Analyze the responses against what they should be
-        code_match = r.status_code == int(site['account_existence_code'])
-        if site['account_existence_string']:
-            string_match = r.text.find(site['account_existence_string']) >= 0
-        else:
-            string_match = 0
+    # Analyze the responses against what they should be
+    code_match = r.status_code == int(site['account_existence_code'])
+    string_match = (
+        r.text.find(site['account_existence_string']) >= 0
+        if site['account_existence_string']
+        else 0
+    )
 
-        if username:
-            if code_match and string_match:
-                if 'pretty_uri' in site:
-                    url = site['pretty_uri'].replace("{account}", uname)
-                    
-                username_results.append(Bcolors.GREEN + '[+] Found user at %s' % url + Bcolors.ENDC)
-                all_found_sites.append(url)
-                return
-        else:
-            if code_match and string_match:
-                # logging.info('     [+] Response code and Search Strings match expected.')
-                # Generate a random string to use in place of known_accounts
-                url_fp = site['check_uri'].replace("{account}", random_string(20))
-                r_fp = web_call(url_fp)
-                if isinstance(r_fp, str):
-                    # If this is a string then web got an error
-                    return logging.error(r_fp)
+    if username:
+        if code_match and string_match:
+            if 'pretty_uri' in site:
+                url = site['pretty_uri'].replace("{account}", uname)
 
-                code_match = r_fp.status_code == int(site['account_existence_code'])
-                string_match = r_fp.text.find(site['account_existence_string']) > 0
+            username_results.append(
+                Bcolors.GREEN + f'[+] Found user at {url}' + Bcolors.ENDC
+            )
 
-                if code_match and string_match:
-                    logging.info('      -  Code: %s; String: %s' % (code_match, string_match))
-                    logging.error(
-                        Bcolors.RED + f' !  ERROR: {site} FALSE POSITIVE DETECTED. Response code and Search '
-                                      f'Strings match expected.' + Bcolors.ENDC + '\r')
-                    # TODO set site['valid'] = False
-                    overall_results[site['name']] = 'False Positive'
-                else:
-                    # logging.info('     [+] Passed false positives test.')
-                    pass
-            elif code_match and not string_match:
+            all_found_sites.append(url)
+            return
+    elif code_match and string_match:
+        # logging.info('     [+] Response code and Search Strings match expected.')
+        # Generate a random string to use in place of known_accounts
+        url_fp = site['check_uri'].replace("{account}", random_string(20))
+        r_fp = web_call(url_fp)
+        if isinstance(r_fp, str):
+            # If this is a string then web got an error
+            return logging.error(r_fp)
+
+        code_match = r_fp.status_code == int(site['account_existence_code'])
+        string_match = r_fp.text.find(site['account_existence_string']) > 0
+
+        if code_match and string_match:
+            logging.info(f'      -  Code: {code_match}; String: {string_match}')
+            logging.error(
+                (
+                    (
+                        f'{Bcolors.RED} !  ERROR: {site} FALSE POSITIVE DETECTED. Response code and Search Strings match expected.'
+                        + Bcolors.ENDC
+                    )
+                    + '\r'
+                )
+            )
+
+            # TODO set site['valid'] = False
+            overall_results[site['name']] = 'False Positive'
+    elif code_match:
                 # TODO set site['valid'] = False
-                logging.error(
-                    Bcolors.RED + f' !  ERROR: {site} BAD DETECTION STRING. "{site["account_existence_string"]}" '
-                                  f'was not found on resulting page.' + Bcolors.ENDC)
-                overall_results[site['name']] = 'Bad detection string.'
-                if args.stringerror:
-                    file_name = 'se-' + site['name'] + '.' + uname
-                    # Unicode sucks
-                    file_name = file_name.encode('ascii', 'ignore').decode('ascii')
-                    error_file = codecs.open(file_name, 'w', 'utf-8')
-                    error_file.write(r.text)
-                    logging.info('Raw data exported to file:' + file_name)
-                    error_file.close()
+        logging.error(
+            (
+                f'{Bcolors.RED} !  ERROR: {site} BAD DETECTION STRING. "{site["account_existence_string"]}" was not found on resulting page.'
+                + Bcolors.ENDC
+            )
+        )
 
-            elif not code_match and string_match:
+        overall_results[site['name']] = 'Bad detection string.'
+        if args.stringerror:
+            file_name = 'se-' + site['name'] + '.' + uname
+            # Unicode sucks
+            file_name = file_name.encode('ascii', 'ignore').decode('ascii')
+            error_file = codecs.open(file_name, 'w', 'utf-8')
+            error_file.write(r.text)
+            logging.info(f'Raw data exported to file:{file_name}')
+            error_file.close()
+
+    elif string_match:
                 # TODO set site['valid'] = False
-                logging.error(Bcolors.RED + f' !  ERROR: {site} BAD DETECTION RESPONSE CODE. HTTP Response code '
-                                            f'different than expected.' + Bcolors.ENDC + '\r')
-                overall_results[site['name']] = 'Bad detection code. Received Code: %s; Expected Code: %s.' % \
-                                                (str(r.status_code), site['account_existence_code'])
-            else:
+        logging.error(
+            (
+                (
+                    f'{Bcolors.RED} !  ERROR: {site} BAD DETECTION RESPONSE CODE. HTTP Response code different than expected.'
+                    + Bcolors.ENDC
+                )
+                + '\r'
+            )
+        )
+
+        overall_results[
+            site['name']
+        ] = f"Bad detection code. Received Code: {str(r.status_code)}; Expected Code: {site['account_existence_code']}."
+
+    else:
                 # TODO set site['valid'] = False
-                logging.error(
-                    Bcolors.RED + f' !  ERROR: {site} BAD CODE AND STRING. Neither the HTTP response code or '
-                                  f'detection string worked.' + Bcolors.ENDC + '\r')
-                overall_results[site['name']] = 'Bad detection code and string. Received Code: %s; Expected Code: %s.' \
-                                                % (str(r.status_code), site['account_existence_code'])
+        logging.error(
+            (
+                (
+                    f'{Bcolors.RED} !  ERROR: {site} BAD CODE AND STRING. Neither the HTTP response code or detection string worked.'
+                    + Bcolors.ENDC
+                )
+                + '\r'
+            )
+        )
+
+        overall_results[
+            site['name']
+        ] = f"Bad detection code and string. Received Code: {str(r.status_code)}; Expected Code: {site['account_existence_code']}."
 
 
 if __name__ == "__main__":
@@ -315,16 +339,16 @@ if __name__ == "__main__":
     # Print result
     finaloutput()
 
-    if args.username and all_found_sites:
-        if (args.output or args.outputfile):
-            if (args.outputfile):
-                outfile = args.outputfile
-            else:
-                outfile = '{}_{}.txt'.format(str(int(time.time())), args.username)
-            with open(outfile, 'w') as f:
-                for item in all_found_sites:
-                    f.write("%s\n" % item)
-            print('\nRaw data exported to file: ' + outfile)
+    if (
+        args.username
+        and all_found_sites
+        and ((args.output or args.outputfile))
+    ):
+        outfile = args.outputfile or f'{int(time.time())}_{args.username}.txt'
+        with open(outfile, 'w') as f:
+            for item in all_found_sites:
+                f.write("%s\n" % item)
+        print('\nRaw data exported to file: ' + outfile)
 
     # Print how long it took
     #end_time = datetime.utcnow()

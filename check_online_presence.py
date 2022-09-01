@@ -32,14 +32,15 @@ parser.add_argument('-in', '--inputfile', nargs='?', help="[OPTIONAL] Uses a spe
 parser.add_argument('-s', '--site', nargs='*', help='[OPTIONAL] If this parameter is passed the script will check only the named site or list of sites.')
 parser.add_argument('-d', '--debug', help="Enable debug output", action="store_true")
 
-if os.name == "posix":
-    class Colors:
+
+
+class Colors:
+    if os.name == "posix":
         YELLOW = "\033[93m"
         RED = "\033[91m"
         GREEN = "\033[92m"
         ENDC = "\033[0m"
-else:
-    class Colors:
+    else:
         YELLOW = ""
         RED = ""
         GREEN = ""
@@ -70,7 +71,12 @@ def web_call(location):
         raise Exception("Critical error.") from caught
 
 def random_string(length):
-    return ''.join(random.choice(string.ascii_lowercase + string.ascii_uppercase + string.digits) for x in range(length))
+    return ''.join(
+        random.choice(
+            string.ascii_lowercase + string.ascii_uppercase + string.digits
+        )
+        for _ in range(length)
+    )
 
 def find_sites_to_check(args, data):
     if args.site:
@@ -80,8 +86,7 @@ def find_sites_to_check(args, data):
         if sites_to_check == 0:
             error('Sorry, none of the requested site or sites were found in the list')
             sys.exit(1)
-        sites_not_found = len(args.site) - len(sites_to_check)
-        if sites_not_found:
+        if sites_not_found := len(args.site) - len(sites_to_check):
             warn('WARNING: %d requested sites were not found in the list' % sites_not_found)
         neutral(' Checking %d sites' % len(sites_to_check))
         return sites_to_check
@@ -98,8 +103,8 @@ def check_site(site, username, if_found, if_not_found, if_neither):
         string_match = resp.text.find(site['account_existence_string']) > 0
 
         if DEBUG_MODE:
-            neutral("- HTTP status (match %s): %s " % (code_match, resp.status_code))
-            neutral("- HTTP response (match: %s): %s" % (string_match, resp.content))
+            neutral(f"- HTTP status (match {code_match}): {resp.status_code} ")
+            neutral(f"- HTTP response (match: {string_match}): {resp.content}")
 
         if code_match and string_match:
             COUNTER["FOUND"] += 1
@@ -117,7 +122,7 @@ def check_site(site, username, if_found, if_not_found, if_neither):
 
     except Exception as caught:
         COUNTER["ERROR"] += 1
-        error("Error when looking up %s (%s)" % (url, str(caught)))
+        error(f"Error when looking up {url} ({str(caught)})")
 
 ###################
 # Main
@@ -137,11 +142,7 @@ def main():
     # Suppress HTTPS warnings
     requests.packages.urllib3.disable_warnings(requests.packages.urllib3.exceptions.InsecureRequestWarning)
     # Read in the JSON file
-    if (args.inputfile):
-        inputfile = args.inputfile
-    else:
-        inputfile = 'web_accounts_list.json'
-
+    inputfile = args.inputfile or 'web_accounts_list.json'
     with open(inputfile) as data_file:
         data = json.load(data_file)
 
@@ -150,27 +151,55 @@ def main():
     try:
         for site in sites_to_check:
             if not site['valid']:
-                warn("[!] Skipping %s - Marked as not valid." % site['name'])
+                warn(f"[!] Skipping {site['name']} - Marked as not valid.")
                 continue
 
             if args.username:
-                check_site(site, args.username,
-                           if_found     = lambda url: positive("[+] User found at %s" % url),
-                           if_not_found = lambda url: neutral( "[-] User not found at %s" % url),
-                           if_neither   = lambda url: error(   "[!] Error. The check implementation is broken for %s" % url))
+                check_site(
+                    site,
+                    args.username,
+                    if_found=lambda url: positive(f"[+] User found at {url}"),
+                    if_not_found=lambda url: neutral(
+                        f"[-] User not found at {url}"
+                    ),
+                    if_neither=lambda url: error(
+                        f"[!] Error. The check implementation is broken for {url}"
+                    ),
+                )
+
             else:
                 non_existent = random_string(20)
 
-                check_site(site, non_existent,
-                           if_found     = lambda url: error(  "[!] False positive for %s" % url),
-                           if_not_found = lambda url: neutral("    As expected, no user found at %s" % url),
-                           if_neither   = lambda url: error(  "[!] Neither conditions matched for %s" % url))
+                check_site(
+                    site,
+                    non_existent,
+                    if_found=lambda url: error(
+                        f"[!] False positive for {url}"
+                    ),
+                    if_not_found=lambda url: neutral(
+                        f"    As expected, no user found at {url}"
+                    ),
+                    if_neither=lambda url: error(
+                        f"[!] Neither conditions matched for {url}"
+                    ),
+                )
+
 
                 for known_account in site['known_accounts']:
-                    check_site(site, known_account,
-                               if_found     = lambda url: neutral("    As expected, profile found at %s" % url),
-                               if_not_found = lambda url: error(  "[!] Profile not found at %s" % url),
-                               if_neither   = lambda url: error(  "[!] Neither conditions matched for %s" % url))
+                    check_site(
+                        site,
+                        known_account,
+                        if_found=lambda url: neutral(
+                            f"    As expected, profile found at {url}"
+                        ),
+                        if_not_found=lambda url: error(
+                            f"[!] Profile not found at {url}"
+                        ),
+                        if_neither=lambda url: error(
+                            f"[!] Neither conditions matched for {url}"
+                        ),
+                    )
+
     finally:
         neutral("")
         neutral("Processing completed")
